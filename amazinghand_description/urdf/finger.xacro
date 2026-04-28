@@ -1,0 +1,153 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    finger.xacro — parametric macro for a single AmazingHand finger.
+
+    Parameters:
+      hand_name     : prefix for all joints/links  (e.g. "right_hand")
+      finger_name   : colloquial name              (e.g. "index")
+      leader_id     : SCS0009 servo bus ID
+      follower_id   : SCS0009 servo bus ID
+      chirality     : "right" | "left"
+      parent        : link to attach the finger base to
+      origin_xyz    : position offset from parent
+      origin_rpy    : orientation offset from parent
+
+    Exposed joints (semantic — not the physical servos):
+      <hand_name>_<finger_name>_flexion
+      <hand_name>_<finger_name>_abduction
+
+    The ros2_control <hardware> section for the full hand is generated
+    in hand.urdf.xacro by iterating over all fingers and dumping their
+    parameters as <param> tags.  The hardware interface reads these back
+    via HardwareInfo::hardware_parameters.
+
+    For Gazebo simulation:
+      - Flexion  → single revolute joint along the finger lateral axis
+      - Abduction → single revolute joint along the finger vertical axis
+      Both modelled as independent joints; the parallel mechanism coupling
+      is handled by the controller, which is identical in sim and hardware.
+  -->
+
+  <xacro:macro name="amazinghand_finger"
+               params="hand_name finger_name leader_id follower_id chirality
+                       parent origin_xyz:='0 0 0' origin_rpy:='0 0 0'">
+
+    <xacro:property name="jname"   value="${hand_name}_${finger_name}" />
+    <xacro:property name="flex_j"  value="${jname}_flexion" />
+    <xacro:property name="abd_j"   value="${jname}_abduction" />
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Links                                                                -->
+    <!-- ------------------------------------------------------------------ -->
+
+    <!-- Finger base — attaches to hand palm -->
+    <link name="${jname}_base_link">
+      <visual>
+        <geometry><box size="0.015 0.012 0.010"/></geometry>
+        <material name="dark_grey"><color rgba="0.2 0.2 0.2 1"/></material>
+      </visual>
+      <collision>
+        <geometry><box size="0.015 0.012 0.010"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="0.010"/>
+        <inertia ixx="1e-6" iyy="1e-6" izz="1e-6" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- Proximal phalanx -->
+    <link name="${jname}_proximal_link">
+      <visual>
+        <origin xyz="0.020 0 0" rpy="0 0 0"/>
+        <geometry><box size="0.040 0.012 0.010"/></geometry>
+        <material name="light_grey"><color rgba="0.8 0.8 0.8 1"/></material>
+      </visual>
+      <collision>
+        <origin xyz="0.020 0 0" rpy="0 0 0"/>
+        <geometry><box size="0.040 0.012 0.010"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="0.015"/>
+        <inertia ixx="1e-6" iyy="1e-6" izz="1e-6" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- Distal phalanx (both segments move together in this simplified model) -->
+    <link name="${jname}_distal_link">
+      <visual>
+        <origin xyz="0.018 0 0" rpy="0 0 0"/>
+        <geometry><box size="0.035 0.011 0.010"/></geometry>
+        <material name="light_grey"><color rgba="0.8 0.8 0.8 1"/></material>
+      </visual>
+      <collision>
+        <origin xyz="0.018 0 0" rpy="0 0 0"/>
+        <geometry><box size="0.035 0.011 0.010"/></geometry>
+      </collision>
+      <inertial>
+        <mass value="0.010"/>
+        <inertia ixx="1e-6" iyy="1e-6" izz="1e-6" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Parent → base joint (fixed, positional offset on the palm)         -->
+    <!-- ------------------------------------------------------------------ -->
+    <joint name="${jname}_mount_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child  link="${jname}_base_link"/>
+      <origin xyz="${origin_xyz}" rpy="${origin_rpy}"/>
+    </joint>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Abduction joint  (lateral spread — rotates around Z of base)       -->
+    <!-- ------------------------------------------------------------------ -->
+    <joint name="${abd_j}" type="revolute">
+      <parent link="${jname}_base_link"/>
+      <child  link="${jname}_proximal_link"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-0.5236" upper="0.5236" effort="1.0" velocity="3.14"/>
+      <dynamics damping="0.01" friction="0.005"/>
+    </joint>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- Flexion joint  (curl — rotates around Y of proximal link)          -->
+    <!-- ------------------------------------------------------------------ -->
+    <joint name="${flex_j}" type="revolute">
+      <parent link="${jname}_proximal_link"/>
+      <child  link="${jname}_distal_link"/>
+      <origin xyz="0.040 0 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="-1.5708" upper="1.5708" effort="1.0" velocity="3.14"/>
+      <dynamics damping="0.01" friction="0.005"/>
+    </joint>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- ros2_control transmission tags (one per semantic joint)            -->
+    <!-- ------------------------------------------------------------------ -->
+    <transmission name="${flex_j}_trans">
+      <type>transmission_interface/SimpleTransmission</type>
+      <joint name="${flex_j}">
+        <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+      </joint>
+      <actuator name="${flex_j}_actuator">
+        <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+        <mechanicalReduction>1</mechanicalReduction>
+      </actuator>
+    </transmission>
+
+    <transmission name="${abd_j}_trans">
+      <type>transmission_interface/SimpleTransmission</type>
+      <joint name="${abd_j}">
+        <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+      </joint>
+      <actuator name="${abd_j}_actuator">
+        <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+        <mechanicalReduction>1</mechanicalReduction>
+      </actuator>
+    </transmission>
+
+  </xacro:macro>
+</robot>
