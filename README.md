@@ -15,10 +15,19 @@ amazinghand_ros2/
 
 ---
 
-## Core design: the mixing matrix
+## Core design: rules-table driven joint "steering" 
+
+Many humanoid hands present a motor-and-cable or motor-per-joint actuation
+mechanism. The AH uses a dual motor-to-linkage method. This requires a different
+actuation system vs. the typical humanoid hand software control. 
+
+Fortunately, ROS provides a number of hardware controllers that drive similar
+systems. While they are not direct drop-ins, enough of the math is the same that
+we can borrow from them, saving us from having to invent YetAnotherHardwareController. 
 
 Each finger has two SCS0009 servos (leader + follower) driving a parallel
-mechanism that produces two independent output axes.
+mechanism that produces two independent output axes. The "leader" servo receives
+the actuation message and the "follower" either copies or inverts the value sent to the leader.
 
 | Desired motion      | Leader | Follower | Rule         |
 |---------------------|--------|----------|--------------|
@@ -56,7 +65,7 @@ Edit **two** files in lock-step:
    `<xacro:amazinghand_finger .../>` block and its `<joint>` + `<param>` entries
 
 There is no code to change. A 3-finger hand, a 5-finger hand, and the default
-4-finger hand are all identical in structure.
+4-finger hand are all identical in structure since the "hand" is really a collection of Fingers.
 
 ---
 
