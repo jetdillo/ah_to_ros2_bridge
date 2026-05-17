@@ -1,4 +1,11 @@
 // amazinghand_controller/src/amazinghand_controller.cpp
+//
+// ROS2 Humble compatible. Key changes from original Rolling version:
+//   - Base class: ControllerInterface (not ChainableControllerInterface)
+//   - update_reference_from_subscribers() + update_and_write_commands() merged
+//     into a single update() — the only update method on Humble
+//   - on_export_reference_interfaces() removed (ChainableControllerInterface only)
+//   - PLUGINLIB_EXPORT_CLASS base corrected to controller_interface::ControllerInterface
 
 #include "amazinghand_controller/amazinghand_controller.hpp"
 
@@ -93,7 +100,6 @@ controller_interface::CallbackReturn AmazingHandController::on_configure(
     js_publish_period_ = rclcpp::Duration::from_seconds(
       1.0 / joint_state_publish_rate_hz_);
 
-    // Pre-populate joint names in the message
     js_pub_->msg_.name.reserve(finger_names_.size() * 2);
     for (const auto& f : finger_names_) {
       js_pub_->msg_.name.push_back(flexion_joint_name(f));
@@ -113,13 +119,13 @@ controller_interface::CallbackReturn AmazingHandController::on_configure(
 
 // ---------------------------------------------------------------------------
 // on_activate
+// Seed commands from current hardware state to avoid a startup position jump.
 // ---------------------------------------------------------------------------
 controller_interface::CallbackReturn AmazingHandController::on_activate(
   const rclcpp_lifecycle::State&)
 {
   last_js_publish_time_ = get_node()->now();
 
-  // Seed commands from current hardware positions to avoid a startup jump
   for (size_t i = 0; i < finger_names_.size(); ++i) {
     const std::string flex_name = flexion_joint_name(finger_names_[i]);
     const std::string abd_name  = abduction_joint_name(finger_names_[i]);
@@ -188,95 +194,52 @@ AmazingHandController::state_interface_configuration() const
 }
 
 // ---------------------------------------------------------------------------
-// on_export_reference_interfaces  (ChainableController)
+// update  (single RT method on Humble ControllerInterface)
+//
+// Replaces both update_reference_from_subscribers() and
+// update_and_write_commands() from the Rolling ChainableControllerInterface.
+// Subscriber handling and command writes happen in sequence each cycle.
 // ---------------------------------------------------------------------------
-std::vector<hardware_interface::CommandInterface>
-AmazingHandController::on_export_reference_interfaces()
-{
-  reference_interfaces_buffer_.assign(finger_names_.size() * 2, 0.0);
-
-  std::vector<hardware_interface::CommandInterface> interfaces;
-  interfaces.reserve(finger_names_.size() * 2);
-
-  for (size_t i = 0; i < finger_names_.size(); ++i) {
-    interfaces.emplace_back(get_node()->get_name(),
-      flexion_joint_name(finger_names_[i]) + "/position",
-      &reference_interfaces_buffer_[i * 2]);
-    interfaces.emplace_back(get_node()->get_name(),
-      abduction_joint_name(finger_names_[i]) + "/position",
-      &reference_interfaces_buffer_[i * 2 + 1]);
-  }
-  return interfaces;
-}
-
-// ---------------------------------------------------------------------------
-// update_reference_from_subscribers  (runs once per cycle, non-RT-critical)
-// Copies the latest HandCommand from the realtime buffer into current_cmds_.
-// ---------------------------------------------------------------------------
-controller_interface::return_type
-AmazingHandController::update_reference_from_subscribers(
-  const rclcpp::Time&, const rclcpp::Duration&)
-{
-  auto msg = *command_buffer_.readFromRT();
-  if (!msg) return controller_interface::return_type::OK;
-
-  for (const auto& fc : msg->fingers) {
-    auto it = std::find(finger_names_.begin(), finger_names_.end(), fc.finger_name);
-    if (it == finger_names_.end()) {
-      RCLCPP_WARN_THROTTLE(get_node()->get_logger(),
-        *get_node()->get_clock(), 2000,
-        "Unknown finger '%s' in command — ignored", fc.finger_name.c_str());
-      continue;
-    }
-    size_t i = static_cast<size_t>(std::distance(finger_names_.begin(), it));
-    double flex = fc.flexion_rad;
-    double abd  = fc.abduction_rad;
-    clamp_command(flex, abd);
-    current_cmds_[i][0] = flex;
-    current_cmds_[i][1] = abd;
-  }
-
-  return controller_interface::return_type::OK;
-}
-
-// ---------------------------------------------------------------------------
-// update_and_write_commands  (RT-critical path)
-// ---------------------------------------------------------------------------
-controller_interface::return_type
-AmazingHandController::update_and_write_commands(
+controller_interface::return_type AmazingHandController::update(
   const rclcpp::Time& time, const rclcpp::Duration&)
 {
-  // If in chained mode, commands come from reference_interfaces_buffer_
-  if (is_in_chained_mode()) {
-    for (size_t i = 0; i < finger_names_.size(); ++i) {
-      double flex = reference_interfaces_buffer_[i * 2];
-      double abd  = reference_interfaces_buffer_[i * 2 + 1];
+  // --- Pull latest command from the non-RT subscriber buffer ---------------
+  auto msg = *command_buffer_.readFromRT();
+  if (msg) {
+    for (const auto& fc : msg->fingers) {
+      auto it = std::find(finger_names_.begin(), finger_names_.end(), fc.finger_name);
+      if (it == finger_names_.end()) {
+        RCLCPP_WARN_THROTTLE(get_node()->get_logger(),
+          *get_node()->get_clock(), 2000,
+          "Unknown finger '%s' in command — ignored", fc.finger_name.c_str());
+        continue;
+      }
+      size_t i = static_cast<size_t>(std::distance(finger_names_.begin(), it));
+      double flex = fc.flexion_rad;
+      double abd  = fc.abduction_rad;
       clamp_command(flex, abd);
       current_cmds_[i][0] = flex;
       current_cmds_[i][1] = abd;
     }
   }
 
-  // Write to hardware command interfaces
+  // --- Write to hardware command interfaces --------------------------------
   for (size_t i = 0; i < finger_names_.size(); ++i) {
     command_interfaces_[i * 2].set_value(current_cmds_[i][0]);      // flexion
     command_interfaces_[i * 2 + 1].set_value(current_cmds_[i][1]);  // abduction
   }
 
-  // Publish joint states at configured rate
+  // --- Publish joint states at configured rate -----------------------------
   if (publish_joint_states_ && js_pub_ &&
       (time - last_js_publish_time_) >= js_publish_period_) {
     if (js_pub_->trylock()) {
       js_pub_->msg_.header.stamp = time;
       for (size_t i = 0; i < finger_names_.size(); ++i) {
         const size_t base = i * 2;
-        // Position
         js_pub_->msg_.position[base]     = state_interfaces_[base * 3].get_value();
         js_pub_->msg_.position[base + 1] = state_interfaces_[base * 3 + 3].get_value();
-        // Velocity
         js_pub_->msg_.velocity[base]     = state_interfaces_[base * 3 + 1].get_value();
         js_pub_->msg_.velocity[base + 1] = state_interfaces_[base * 3 + 4].get_value();
-        // Effort
         js_pub_->msg_.effort[base]       = state_interfaces_[base * 3 + 2].get_value();
         js_pub_->msg_.effort[base + 1]   = state_interfaces_[base * 3 + 5].get_value();
       }
@@ -292,6 +255,7 @@ AmazingHandController::update_and_write_commands(
 
 // ---------------------------------------------------------------------------
 // Plugin export
+// Base class corrected to ControllerInterface for Humble compatibility.
 // ---------------------------------------------------------------------------
 #include "pluginlib/class_list_macros.hpp"
 PLUGINLIB_EXPORT_CLASS(

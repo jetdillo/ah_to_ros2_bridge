@@ -7,14 +7,19 @@ find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 
+# Path to SCServo_Linux repo root. Adjust if your checkout is elsewhere.
+set(SCSERVO_DIR "$ENV{HOME}/projects/robots/SCServo_Linux"
+    CACHE PATH "Path to SCServo_Linux repository root")
+
 add_library(${PROJECT_NAME} SHARED
   src/amazinghand_hardware_interface.cpp
-  src/scs0009_driver.cpp          # TODO: implement serial comms
+  src/scs0009_driver.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
+  ${SCSERVO_DIR}
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -22,6 +27,10 @@ ament_target_dependencies(${PROJECT_NAME}
   pluginlib
   rclcpp
   rclcpp_lifecycle
+)
+
+target_link_libraries(${PROJECT_NAME}
+  ${SCSERVO_DIR}/build/libSCServo.a
 )
 
 pluginlib_export_plugin_description_file(

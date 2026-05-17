@@ -16,10 +16,11 @@
 //
 // Internally the interface:
 //   1. Reads the YAML finger config and builds FingerConfig objects.
-//   2. On write(): applies mix() to convert semantic commands → raw servo pos,
-//      then sync-writes all servos in a single bus packet.
-//   3. On read(): bulk-reads all servos, applies unmix() to recover semantic
-//      feedback, and updates the state interface buffers.
+//   2. On write(): writes semantic commands to the driver via set_command(),
+//      then calls write_all() which handles mixing and SyncWritePos internally.
+//   3. On read(): calls poll_all() which sequences FeedBack() per servo,
+//      then reads back FingerBus state and applies unmix() to update the
+//      ros2_control state interface buffers.
 
 #include <vector>
 #include <string>
@@ -80,24 +81,21 @@ private:
   int          servo_min_pos_;
   int          servo_max_pos_;
 
+  // Finger configs parsed from URDF <hardware> params — index-stable after on_init
   std::vector<FingerConfig> fingers_;
-  std::vector<FingerState>  states_;   // index-aligned with fingers_
 
+  // Driver owns the bus, the FingerBus list, and all servo I/O
   std::unique_ptr<SCS0009Driver> driver_;
 
-  // Flat double buffers that ros2_control's StateInterface / CommandInterface
+  // Flat double buffers that ros2_control StateInterface / CommandInterface
   // hold references into.  Layout: [finger0_flex, finger0_abd, finger1_flex, ...]
   std::vector<double> pos_state_;
   std::vector<double> vel_state_;
   std::vector<double> eff_state_;
   std::vector<double> pos_cmd_;
 
-  // Cached ordered servo ID list for bulk operations
-  std::vector<uint8_t> all_servo_ids_;
-
   // Helpers
   void load_finger_configs(const hardware_interface::HardwareInfo& info);
-  bool clamp_raw(uint16_t& raw) const;
 };
 
 }  // namespace amazinghand

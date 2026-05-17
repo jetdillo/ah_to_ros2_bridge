@@ -1,86 +1,32 @@
-# AmazingHand ROS2 Controller Configuration
-# ---------------------------------------------------------------------------
-# A "hand" is simply an ordered collection of fingers.
-# There is no structural difference between a 3-finger hand, a 4-finger hand
-# with thumb, or any other topology — just add or remove finger entries.
-#
-# Each finger has:
-#   id          : integer index (used internally for joint name generation)
-#   name        : colloquial name (used in joint names, topics, and TF frames)
-#   chirality   : "right" | "left" — flips abduction polarity for mirrored hands
-#   leader_id   : Feetech SCS0009 servo bus ID for the leader motor
-#   follower_id : Feetech SCS0009 servo bus ID for the follower motor
-#
-# Motor coupling convention (see finger_controller.hpp for implementation):
-#   Flexion/Extension  : leader = +cmd,  follower = -cmd  (opposition)
-#   Abduction/Adduction: leader = +cmd,  follower = +cmd  (copy)
-#
-# Combined mixing matrix per finger:
-#   motor_leader   =  flexion + abduction
-#   motor_follower = -flexion + abduction
-# ---------------------------------------------------------------------------
+# amazinghand_bringup/config/right_hand.yaml
+# Controller manager and controller parameters for the right hand.
+# Hardware interface parameters (hand_name, serial_port, baud_rate, servo limits,
+# and finger configs) are declared in hand.urdf.xacro as ros2_control param tags.
+# This file is only read by the controller_manager and amazinghand_controller nodes.
 
-amazinghand_hardware:
+controller_manager:
   ros__parameters:
-    hand_name: "right_hand"
-    serial_port: "/dev/ttyUSB0"
-    baud_rate: 1000000        # SCS0009 default: 1Mbps
-    update_rate_hz: 50.0
+    update_rate: 50
 
-    # Servo position limits (raw SCS0009 units: 0-1023, centre=512)
-    servo_min_pos: 200
-    servo_max_pos: 824
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
 
-    fingers:
-      - id: 0
-        name: "index"
-        chirality: "right"
-        leader_id: 1
-        follower_id: 2
-
-      - id: 1
-        name: "middle"
-        chirality: "right"
-        leader_id: 3
-        follower_id: 4
-
-      - id: 2
-        name: "ring"
-        chirality: "right"
-        leader_id: 5
-        follower_id: 6
-
-      - id: 3
-        name: "thumb"
-        chirality: "right"
-        leader_id: 7
-        follower_id: 8
+    amazinghand_controller:
+      type: amazinghand_controller/AmazingHandController
 
 amazinghand_controller:
   ros__parameters:
-    # Joint names must match what the hardware interface advertises.
-    # Pattern: <hand_name>_<finger_name>_<axis>
-    # These are the *semantic* joints exposed to MoveIt / teleop.
-    # The hardware layer handles the leader/follower mixing transparently.
-    command_joints:
-      - "right_hand_index_flexion"
-      - "right_hand_index_abduction"
-      - "right_hand_middle_flexion"
-      - "right_hand_middle_abduction"
-      - "right_hand_ring_flexion"
-      - "right_hand_ring_abduction"
-      - "right_hand_thumb_flexion"
-      - "right_hand_thumb_abduction"
-
-    # Position limits in radians for each semantic axis
+    hand_name: "right_hand"
+    finger_names:
+      - "index"
+      - "middle"
+      - "ring"
+      - "thumb"
     flexion_limit_rad:
-      min: -1.5708   # -90 deg (full extension)
-      max:  1.5708   #  90 deg (full flexion)
-
+      min: -1.5708
+      max: 1.5708
     abduction_limit_rad:
-      min: -0.5236   # -30 deg
-      max:  0.5236   #  30 deg
-
-    # If true, controller reads back motor positions and publishes joint states.
+      min: -0.5236
+      max: 0.5236
     publish_joint_states: true
     joint_state_publish_rate_hz: 50.0

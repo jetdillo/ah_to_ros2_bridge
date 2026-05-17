@@ -1,0 +1,9 @@
+# ros2_control_params.yaml
+# This is loaded by ros2_control_node
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    amazinghand_controller:
+      type: amazinghand_controller/AmazingHandController

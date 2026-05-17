@@ -1,69 +1,39 @@
 """
 amazinghand_bringup/launch/hand.launch.py
 
-Brings up a single AmazingHand (real hardware or Gazebo sim).
-
 Launch arguments:
-  hand_name    (default: right_hand)
-  serial_port  (default: /dev/ttyUSB0)
-  use_sim      (default: false)
-  use_rviz     (default: true)
+  hand_name   (default: right_hand)
+  serial_port (default: /dev/ttyUSB0)
 
-Example — real right hand:
-  ros2 launch amazinghand_bringup hand.launch.py
+Example:
+  ros2 launch amazinghand_bringup hand.launch.py serial_port:=/dev/ttyACM0
+  ros2 launch amazinghand_bringup hand.launch.py hand_name:=left_hand serial_port:=/dev/ttyUSB1
 
-Example — real left hand:
-  ros2 launch amazinghand_bringup hand.launch.py \
-      hand_name:=left_hand serial_port:=/dev/ttyUSB1
-
-Example — Gazebo simulation:
-  ros2 launch amazinghand_bringup hand.launch.py use_sim:=true
+Not included yet (future work):
+  robot_state_publisher  - requires mesh files
+  rviz2                  - requires mesh files and rviz config
+  Gazebo sim             - requires gz_ros2_control wiring
 """
 
-import os
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import (
-    DeclareLaunchArgument,
-    IncludeLaunchDescription,
-    OpaqueFunction,
-    RegisterEventHandler,
-)
-from launch.conditions import IfCondition, UnlessCondition
+from launch.actions import DeclareLaunchArgument, RegisterEventHandler
 from launch.event_handlers import OnProcessExit
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import (
-    Command,
-    FindExecutable,
-    LaunchConfiguration,
-    PathJoinSubstitution,
-)
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command, FindExecutable
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
 
-    # ------------------------------------------------------------------
-    # Declared arguments
-    # ------------------------------------------------------------------
     declared_args = [
         DeclareLaunchArgument("hand_name",   default_value="right_hand"),
         DeclareLaunchArgument("serial_port", default_value="/dev/ttyUSB0"),
-        DeclareLaunchArgument("use_sim",     default_value="false",
-                              choices=["true", "false"]),
-        DeclareLaunchArgument("use_rviz",    default_value="true",
-                              choices=["true", "false"]),
     ]
 
     hand_name   = LaunchConfiguration("hand_name")
     serial_port = LaunchConfiguration("serial_port")
-    use_sim     = LaunchConfiguration("use_sim")
-    use_rviz    = LaunchConfiguration("use_rviz")
 
-    # ------------------------------------------------------------------
-    # URDF / robot description
-    # ------------------------------------------------------------------
     robot_description_content = Command([
         FindExecutable(name="xacro"), " ",
         PathJoinSubstitution([
@@ -72,24 +42,14 @@ def generate_launch_description():
         ]),
         " hand_name:=",   hand_name,
         " serial_port:=", serial_port,
-        " use_sim:=",     use_sim,
+        " use_sim:=false",
     ])
 
-    robot_description = {"robot_description": robot_description_content}
+#    robot_description = {"robot_description": robot_description_content}
 
-    # ------------------------------------------------------------------
-    # robot_state_publisher
-    # ------------------------------------------------------------------
-    rsp_node = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        output="screen",
-        parameters=[robot_description],
-    )
-
-    # ------------------------------------------------------------------
-    # ros2_control_node  (real hardware only)
-    # ------------------------------------------------------------------
+    robot_description = {
+        "robot_description": ParameterValue(robot_description_content, value_type=str)
+    }
     ros2_control_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
@@ -102,12 +62,8 @@ def generate_launch_description():
             ]),
         ],
         output="screen",
-        condition=UnlessCondition(use_sim),
     )
 
-    # ------------------------------------------------------------------
-    # Spawners — run after controller_manager is ready
-    # ------------------------------------------------------------------
     spawn_jsb = Node(
         package="controller_manager",
         executable="spawner",
@@ -120,7 +76,6 @@ def generate_launch_description():
         arguments=["amazinghand_controller", "--controller-manager", "/controller_manager"],
     )
 
-    # Ensure joint_state_broadcaster is up before spawning the hand controller
     delay_hand_ctrl = RegisterEventHandler(
         OnProcessExit(
             target_action=spawn_jsb,
@@ -128,31 +83,9 @@ def generate_launch_description():
         )
     )
 
-    # ------------------------------------------------------------------
-    # RViz
-    # ------------------------------------------------------------------
-    rviz_config = PathJoinSubstitution([
-        FindPackageShare("amazinghand_description"),
-        "rviz", "hand.rviz",
-    ])
-
-    rviz_node = Node(
-        package="rviz2",
-        executable="rviz2",
-        name="rviz2",
-        arguments=["-d", rviz_config],
-        condition=IfCondition(use_rviz),
-        output="log",
-    )
-
-    # ------------------------------------------------------------------
-    # Assemble
-    # ------------------------------------------------------------------
     return LaunchDescription([
         *declared_args,
-        rsp_node,
         ros2_control_node,
         spawn_jsb,
         delay_hand_ctrl,
-        rviz_node,
     ])

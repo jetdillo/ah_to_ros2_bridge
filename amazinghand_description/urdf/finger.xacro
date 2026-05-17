@@ -2,7 +2,7 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!--
-    finger.xacro — parametric macro for a single AmazingHand finger.
+    finger.xacro: parametric macro for a single AmazingHand finger.
 
     Parameters:
       hand_name     : prefix for all joints/links  (e.g. "right_hand")
@@ -14,7 +14,7 @@
       origin_xyz    : position offset from parent
       origin_rpy    : orientation offset from parent
 
-    Exposed joints (semantic — not the physical servos):
+    Exposed joints (semantic, not the physical servos):
       <hand_name>_<finger_name>_flexion
       <hand_name>_<finger_name>_abduction
 
@@ -24,8 +24,8 @@
     via HardwareInfo::hardware_parameters.
 
     For Gazebo simulation:
-      - Flexion  → single revolute joint along the finger lateral axis
-      - Abduction → single revolute joint along the finger vertical axis
+      - Flexion   single revolute joint along the finger lateral axis
+      - Abduction  single revolute joint along the finger vertical axis
       Both modelled as independent joints; the parallel mechanism coupling
       is handled by the controller, which is identical in sim and hardware.
   -->
@@ -38,11 +38,7 @@
     <xacro:property name="flex_j"  value="${jname}_flexion" />
     <xacro:property name="abd_j"   value="${jname}_abduction" />
 
-    <!-- ------------------------------------------------------------------ -->
-    <!-- Links                                                                -->
-    <!-- ------------------------------------------------------------------ -->
-
-    <!-- Finger base — attaches to hand palm -->
+    <!-- Finger base attaches to hand palm -->
     <link name="${jname}_base_link">
       <visual>
         <geometry><box size="0.015 0.012 0.010"/></geometry>
@@ -91,18 +87,14 @@
       </inertial>
     </link>
 
-    <!-- ------------------------------------------------------------------ -->
-    <!-- Parent → base joint (fixed, positional offset on the palm)         -->
-    <!-- ------------------------------------------------------------------ -->
+    <!-- Parent base joint (fixed, positional offset on the palm)         -->
     <joint name="${jname}_mount_joint" type="fixed">
       <parent link="${parent}"/>
       <child  link="${jname}_base_link"/>
       <origin xyz="${origin_xyz}" rpy="${origin_rpy}"/>
     </joint>
 
-    <!-- ------------------------------------------------------------------ -->
     <!-- Abduction joint  (lateral spread — rotates around Z of base)       -->
-    <!-- ------------------------------------------------------------------ -->
     <joint name="${abd_j}" type="revolute">
       <parent link="${jname}_base_link"/>
       <child  link="${jname}_proximal_link"/>
@@ -112,9 +104,7 @@
       <dynamics damping="0.01" friction="0.005"/>
     </joint>
 
-    <!-- ------------------------------------------------------------------ -->
     <!-- Flexion joint  (curl — rotates around Y of proximal link)          -->
-    <!-- ------------------------------------------------------------------ -->
     <joint name="${flex_j}" type="revolute">
       <parent link="${jname}_proximal_link"/>
       <child  link="${jname}_distal_link"/>
@@ -124,9 +114,7 @@
       <dynamics damping="0.01" friction="0.005"/>
     </joint>
 
-    <!-- ------------------------------------------------------------------ -->
     <!-- ros2_control transmission tags (one per semantic joint)            -->
-    <!-- ------------------------------------------------------------------ -->
     <transmission name="${flex_j}_trans">
       <type>transmission_interface/SimpleTransmission</type>
       <joint name="${flex_j}">

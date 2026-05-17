@@ -2,28 +2,24 @@
 
 // amazinghand_controller/include/amazinghand_controller/amazinghand_controller.hpp
 //
-// ChainableController that bridges semantic finger commands to the
-// ros2_control hardware interface command interfaces.
+// ros2_control ControllerInterface for the AmazingHand (ROS2 Humble compatible).
 //
 // Subscription  : ~/command  [amazinghand_msgs/msg/HandCommand]
 // Publication   : ~/joint_states [sensor_msgs/msg/JointState]  (optional)
 //
-// Chain mode reference interfaces (for upstream controllers e.g. MoveIt):
-//   <controller_name>/<hand>_<finger>_flexion/position
-//   <controller_name>/<hand>_<finger>_abduction/position
-//
-// The controller owns no mixing logic — that lives in the hardware interface.
-// This controller's job is:
-//   1. Validate and clamp incoming commands.
-//   2. Write them to the hardware command interfaces.
-//   3. Publish JointState feedback for visualisation / MoveIt state.
+// NOTE: This was originally written against the Rolling ChainableControllerInterface
+// API which introduced update_reference_from_subscribers() and
+// on_export_reference_interfaces().  Neither exists in Humble.  The controller
+// has been ported back to the standard ControllerInterface which is stable
+// across Humble and later releases.  Chaining support can be added later once
+// you move to Iron/Jazzy where the API is stable.
 
 #include <string>
 #include <vector>
-#include <unordered_map>
+#include <array>
 #include <memory>
 
-#include "controller_interface/chainable_controller_interface.hpp"
+#include "controller_interface/controller_interface.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
@@ -34,7 +30,7 @@
 
 namespace amazinghand_controller {
 
-class AmazingHandController : public controller_interface::ChainableControllerInterface {
+class AmazingHandController : public controller_interface::ControllerInterface {
 public:
   AmazingHandController() = default;
 
@@ -59,24 +55,16 @@ public:
   controller_interface::InterfaceConfiguration state_interface_configuration()   const override;
 
   // -------------------------------------------------------------------------
-  // Update
+  // Update — single method on Humble ControllerInterface
   // -------------------------------------------------------------------------
-  controller_interface::return_type update_reference_from_subscribers(
+  controller_interface::return_type update(
     const rclcpp::Time& time, const rclcpp::Duration& period) override;
-
-  controller_interface::return_type update_and_write_commands(
-    const rclcpp::Time& time, const rclcpp::Duration& period) override;
-
-protected:
-  // ChainableControllerInterface: export reference interfaces for chaining
-  std::vector<hardware_interface::CommandInterface>
-    on_export_reference_interfaces() override;
 
 private:
   // Parameters
   std::string hand_name_;
   std::vector<std::string> finger_names_;
-  double flexion_min_rad_,  flexion_max_rad_;
+  double flexion_min_rad_,   flexion_max_rad_;
   double abduction_min_rad_, abduction_max_rad_;
   bool   publish_joint_states_;
   double joint_state_publish_rate_hz_;
@@ -95,10 +83,6 @@ private:
   std::shared_ptr<realtime_tools::RealtimePublisher<JointStateMsg>> js_pub_;
   rclcpp::Duration js_publish_period_{0, 0};
   rclcpp::Time     last_js_publish_time_;
-
-  // Reference interfaces (for chained mode) — flat buffer
-  // Layout: [finger0_flexion, finger0_abduction, finger1_flexion, ...]
-  std::vector<double> reference_interfaces_buffer_;
 
   // Helpers
   std::string flexion_joint_name(const std::string& finger) const;

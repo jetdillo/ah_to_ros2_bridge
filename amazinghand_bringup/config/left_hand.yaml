@@ -1,67 +1,32 @@
-# AmazingHand ROS2 Controller Configuration — LEFT HAND
-# ---------------------------------------------------------------------------
-# Structurally identical to right_hand.yaml.
-# The only differences are:
-#   - hand_name
-#   - chirality: "left" on each finger (flips abduction sign in the mixer)
-#   - leader_id / follower_id values (different servo bus IDs per pollen convention)
-#   - serial_port (if on a separate bus)
-# ---------------------------------------------------------------------------
+# amazinghand_bringup/config/left_hand.yaml
+# Controller manager and controller parameters for the left hand.
+# Hardware interface parameters (hand_name, serial_port, baud_rate, servo limits,
+# and finger configs) are declared in hand.urdf.xacro as ros2_control param tags.
+# This file is only read by the controller_manager and amazinghand_controller nodes.
 
-amazinghand_hardware:
+controller_manager:
   ros__parameters:
-    hand_name: "left_hand"
-    serial_port: "/dev/ttyUSB1"
-    baud_rate: 1000000
-    update_rate_hz: 50.0
+    update_rate: 50
 
-    servo_min_pos: 200
-    servo_max_pos: 824
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
 
-    fingers:
-      - id: 0
-        name: "index"
-        chirality: "left"
-        leader_id: 11
-        follower_id: 12
-
-      - id: 1
-        name: "middle"
-        chirality: "left"
-        leader_id: 13
-        follower_id: 14
-
-      - id: 2
-        name: "ring"
-        chirality: "left"
-        leader_id: 15
-        follower_id: 16
-
-      - id: 3
-        name: "thumb"
-        chirality: "left"
-        leader_id: 17
-        follower_id: 18
+    amazinghand_controller:
+      type: amazinghand_controller/AmazingHandController
 
 amazinghand_controller:
   ros__parameters:
-    command_joints:
-      - "left_hand_index_flexion"
-      - "left_hand_index_abduction"
-      - "left_hand_middle_flexion"
-      - "left_hand_middle_abduction"
-      - "left_hand_ring_flexion"
-      - "left_hand_ring_abduction"
-      - "left_hand_thumb_flexion"
-      - "left_hand_thumb_abduction"
-
+    hand_name: "left_hand"
+    finger_names:
+      - "index"
+      - "middle"
+      - "ring"
+      - "thumb"
     flexion_limit_rad:
       min: -1.5708
-      max:  1.5708
-
+      max: 1.5708
     abduction_limit_rad:
       min: -0.5236
-      max:  0.5236
-
+      max: 0.5236
     publish_joint_states: true
     joint_state_publish_rate_hz: 50.0

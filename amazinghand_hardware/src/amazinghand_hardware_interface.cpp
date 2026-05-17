@@ -24,9 +24,9 @@ AmazingHandHardwareInterface::on_init(const hardware_interface::HardwareInfo& in
   }
 
   try {
-    hand_name_    = info.hardware_parameters.at("hand_name");
-    serial_port_  = info.hardware_parameters.at("serial_port");
-    baud_rate_    = std::stoi(info.hardware_parameters.at("baud_rate"));
+    hand_name_     = info.hardware_parameters.at("hand_name");
+    serial_port_   = info.hardware_parameters.at("serial_port");
+    baud_rate_     = std::stoi(info.hardware_parameters.at("baud_rate"));
     servo_min_pos_ = std::stoi(info.hardware_parameters.at("servo_min_pos"));
     servo_max_pos_ = std::stoi(info.hardware_parameters.at("servo_max_pos"));
   } catch (const std::exception& e) {
@@ -42,13 +42,6 @@ AmazingHandHardwareInterface::on_init(const hardware_interface::HardwareInfo& in
   vel_state_.assign(n, 0.0);
   eff_state_.assign(n, 0.0);
   pos_cmd_.assign(n,   0.0);
-  states_.resize(fingers_.size());
-
-  // Build ordered servo ID list for bulk I/O
-  for (const auto& f : fingers_) {
-    all_servo_ids_.push_back(f.leader_id);
-    all_servo_ids_.push_back(f.follower_id);
-  }
 
   RCLCPP_INFO(rclcpp::get_logger(TAG),
     "Initialised '%s' with %zu finger(s) on %s @ %d baud",
@@ -58,42 +51,64 @@ AmazingHandHardwareInterface::on_init(const hardware_interface::HardwareInfo& in
 }
 
 // ---------------------------------------------------------------------------
-// on_configure  — open serial port
+// on_configure  — create driver and open serial port
+//
+// FIX: driver constructor now takes min/max raw limits as well as port/baud.
+//      open() now takes the finger config list — it builds FingerBus entries
+//      and pings each servo internally.
 // ---------------------------------------------------------------------------
 hardware_interface::CallbackReturn
 AmazingHandHardwareInterface::on_configure(const rclcpp_lifecycle::State&)
 {
-  driver_ = std::make_unique<SCS0009Driver>(serial_port_, baud_rate_);
-  if (!driver_->open()) {
+  driver_ = std::make_unique<SCS0009Driver>(
+    serial_port_,
+    baud_rate_,
+    static_cast<uint16_t>(servo_min_pos_),
+    static_cast<uint16_t>(servo_max_pos_));
+
+  // Wire up the warn callback so the driver can emit ROS log messages
+  driver_->set_warn_callback([](const std::string& msg) {
+    RCLCPP_WARN(rclcpp::get_logger(TAG), "%s", msg.c_str());
+  });
+
+  if (!driver_->open(fingers_)) {
     RCLCPP_ERROR(rclcpp::get_logger(TAG),
       "Failed to open serial port %s", serial_port_.c_str());
     return hardware_interface::CallbackReturn::ERROR;
   }
-  RCLCPP_INFO(rclcpp::get_logger(TAG), "Serial port opened: %s", serial_port_.c_str());
+
+  RCLCPP_INFO(rclcpp::get_logger(TAG),
+    "Serial port opened: %s  (%d/%zu finger(s) healthy)",
+    serial_port_.c_str(),
+    driver_->healthy_finger_count(),
+    fingers_.size());
+
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 // ---------------------------------------------------------------------------
 // on_activate  — enable torque on all servos
+//
+// FIX: enable_torque_all() now takes only a bool — the driver iterates its
+//      own FingerBus list internally.  No servo ID vector needed here.
 // ---------------------------------------------------------------------------
 hardware_interface::CallbackReturn
 AmazingHandHardwareInterface::on_activate(const rclcpp_lifecycle::State&)
 {
-  if (!driver_->set_torque_all(all_servo_ids_, true)) {
-    RCLCPP_ERROR(rclcpp::get_logger(TAG), "Failed to enable torque");
-    return hardware_interface::CallbackReturn::ERROR;
-  }
+  driver_->enable_torque_all(true);
   RCLCPP_INFO(rclcpp::get_logger(TAG), "Torque enabled on all servos");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 // ---------------------------------------------------------------------------
 // on_deactivate  — disable torque (hand goes compliant)
+//
+// FIX: same enable_torque_all() signature change as on_activate.
 // ---------------------------------------------------------------------------
 hardware_interface::CallbackReturn
 AmazingHandHardwareInterface::on_deactivate(const rclcpp_lifecycle::State&)
 {
-  driver_->set_torque_all(all_servo_ids_, false);
+  driver_->enable_torque_all(false);
   RCLCPP_INFO(rclcpp::get_logger(TAG), "Torque disabled — hand is compliant");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -122,7 +137,6 @@ AmazingHandHardwareInterface::export_state_interfaces()
     const size_t base = i * 2;
     const auto& f = fingers_[i];
 
-    // Flexion (index base+0)
     interfaces.emplace_back(f.flexion_joint_name,
       hardware_interface::HW_IF_POSITION, &pos_state_[base]);
     interfaces.emplace_back(f.flexion_joint_name,
@@ -130,7 +144,6 @@ AmazingHandHardwareInterface::export_state_interfaces()
     interfaces.emplace_back(f.flexion_joint_name,
       hardware_interface::HW_IF_EFFORT,   &eff_state_[base]);
 
-    // Abduction (index base+1)
     interfaces.emplace_back(f.abduction_joint_name,
       hardware_interface::HW_IF_POSITION, &pos_state_[base + 1]);
     interfaces.emplace_back(f.abduction_joint_name,
@@ -163,92 +176,78 @@ AmazingHandHardwareInterface::export_command_interfaces()
 }
 
 // ---------------------------------------------------------------------------
-// read  — bulk-read servos, unmix into semantic feedback
+// read  — poll all servos, unmix feedback into state buffers
+//
+// FIX: replaced bulk_read_feedback(all_servo_ids_) with driver_->poll_all().
+//      State is read back per finger via driver_->fingers() which returns
+//      the FingerBus list.  unmix() and SCS_RAD_PER_UNIT replace the old
+//      per-feedback-struct approach.
 // ---------------------------------------------------------------------------
 hardware_interface::return_type
 AmazingHandHardwareInterface::read(const rclcpp::Time&, const rclcpp::Duration&)
 {
-  auto feedbacks = driver_->bulk_read_feedback(all_servo_ids_);
-  // feedbacks layout mirrors all_servo_ids_: [leader0, follower0, leader1, ...]
+  driver_->poll_all();
+
+  const auto& finger_buses = driver_->fingers();
 
   for (size_t i = 0; i < fingers_.size(); ++i) {
-    const size_t servo_base = i * 2;
-    const auto& leader_fb   = feedbacks[servo_base];
-    const auto& follower_fb = feedbacks[servo_base + 1];
+    const auto& fb = finger_buses[i];
 
-    if (!leader_fb.valid || !follower_fb.valid) {
+    if (!fb.healthy()) {
       RCLCPP_WARN_THROTTLE(rclcpp::get_logger(TAG),
         *rclcpp::Clock::make_shared(), 1000,
         "Stale feedback for finger '%s'", fingers_[i].name.c_str());
       continue;
     }
 
-    double leader_rad   = raw_to_rad(leader_fb.position);
-    double follower_rad = raw_to_rad(follower_fb.position);
+    const size_t base = i * 2;
 
+    // Unmix raw servo positions into semantic axes
     double flexion_rad, abduction_rad;
-    unmix(fingers_[i], leader_rad, follower_rad, flexion_rad, abduction_rad);
+    unmix(fingers_[i],
+          fb.leader.pos_rad(),
+          fb.follower.pos_rad(),
+          flexion_rad, abduction_rad);
 
-    const size_t state_base = i * 2;
-    pos_state_[state_base]     = flexion_rad;
-    pos_state_[state_base + 1] = abduction_rad;
+    pos_state_[base]     = flexion_rad;
+    pos_state_[base + 1] = abduction_rad;
 
-    // Velocity: same unmix applied to velocity readings
-    double leader_vel   = raw_to_rad(leader_fb.velocity);
-    double follower_vel = raw_to_rad(follower_fb.velocity);
+    // Velocity — unmix raw speed readings the same way
     double flex_vel, abd_vel;
-    unmix(fingers_[i], leader_vel, follower_vel, flex_vel, abd_vel);
-    vel_state_[state_base]     = flex_vel;
-    vel_state_[state_base + 1] = abd_vel;
+    unmix(fingers_[i],
+          raw_to_rad(static_cast<uint16_t>(std::abs(fb.leader.speed_raw))),
+          raw_to_rad(static_cast<uint16_t>(std::abs(fb.follower.speed_raw))),
+          flex_vel, abd_vel);
 
-    // Effort: approximate from servo load (average of abs values)
-    eff_state_[state_base]     = std::abs(leader_fb.load) * SCS0009_RAD_PER_UNIT;
-    eff_state_[state_base + 1] = std::abs(follower_fb.load) * SCS0009_RAD_PER_UNIT;
+    vel_state_[base]     = flex_vel;
+    vel_state_[base + 1] = abd_vel;
+
+    // Effort — normalised load as a proxy
+    eff_state_[base]     = fb.leader.load_effort();
+    eff_state_[base + 1] = fb.follower.load_effort();
   }
 
   return hardware_interface::return_type::OK;
 }
 
 // ---------------------------------------------------------------------------
-// write  — mix semantic commands → raw positions, sync-write all servos
+// write  — push commands to driver, fire sync write
+//
+// FIX: replaced hand-rolled mix+rad_to_raw+sync_write_positions with
+//      driver_->set_command() + driver_->write_all().  The driver now owns
+//      the mixing, clamping, and SyncWritePos call internally.
 // ---------------------------------------------------------------------------
 hardware_interface::return_type
 AmazingHandHardwareInterface::write(const rclcpp::Time&, const rclcpp::Duration&)
 {
-  std::vector<uint8_t>  ids;
-  std::vector<uint16_t> raw_positions;
-  ids.reserve(all_servo_ids_.size());
-  raw_positions.reserve(all_servo_ids_.size());
-
   for (size_t i = 0; i < fingers_.size(); ++i) {
     const size_t base = i * 2;
-    const double flexion_cmd   = pos_cmd_[base];
-    const double abduction_cmd = pos_cmd_[base + 1];
-
-    MotorCommand mc = mix(fingers_[i], flexion_cmd, abduction_cmd);
-
-    uint16_t leader_raw   = rad_to_raw(mc.leader_pos_rad);
-    uint16_t follower_raw = rad_to_raw(mc.follower_pos_rad);
-
-    // Clamp to configured mechanical limits
-    leader_raw   = std::clamp(leader_raw,
-      static_cast<uint16_t>(servo_min_pos_),
-      static_cast<uint16_t>(servo_max_pos_));
-    follower_raw = std::clamp(follower_raw,
-      static_cast<uint16_t>(servo_min_pos_),
-      static_cast<uint16_t>(servo_max_pos_));
-
-    ids.push_back(fingers_[i].leader_id);
-    ids.push_back(fingers_[i].follower_id);
-    raw_positions.push_back(leader_raw);
-    raw_positions.push_back(follower_raw);
+    driver_->set_command(fingers_[i].name,
+                         pos_cmd_[base],       // flexion
+                         pos_cmd_[base + 1]);  // abduction
   }
 
-  if (!driver_->sync_write_positions(ids, raw_positions)) {
-    RCLCPP_ERROR_THROTTLE(rclcpp::get_logger(TAG),
-      *rclcpp::Clock::make_shared(), 1000, "sync_write failed");
-    return hardware_interface::return_type::ERROR;
-  }
+  driver_->write_all();
 
   return hardware_interface::return_type::OK;
 }
@@ -259,11 +258,6 @@ AmazingHandHardwareInterface::write(const rclcpp::Time&, const rclcpp::Duration&
 void AmazingHandHardwareInterface::load_finger_configs(
   const hardware_interface::HardwareInfo& info)
 {
-  // Finger parameters are encoded in the URDF <hardware> tag as:
-  //   finger.<idx>.name, finger.<idx>.chirality,
-  //   finger.<idx>.leader_id, finger.<idx>.follower_id
-  // The Python launch script or xacro macro generates these from the YAML.
-
   size_t idx = 0;
   while (true) {
     const std::string pfx = "finger." + std::to_string(idx) + ".";
@@ -280,7 +274,6 @@ void AmazingHandHardwareInterface::load_finger_configs(
     fc.follower_id = static_cast<uint8_t>(
                        std::stoi(info.hardware_parameters.at(pfx + "follower_id")));
 
-    // Build canonical joint names
     fc.flexion_joint_name   = hand_name_ + "_" + fc.name + "_flexion";
     fc.abduction_joint_name = hand_name_ + "_" + fc.name + "_abduction";
 
