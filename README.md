@@ -130,12 +130,7 @@ Fingers not mentioned in the message retain their current commanded position.
 
 | File | Status | Notes |
 |------|--------|-------|
-| `scs0009_driver.cpp` | **TODO** | Serial I/O stubs — see inline comments for protocol |
 | `amazinghand_description/rviz/hand.rviz` | TODO | RViz config for visualisation |
-| `amazinghand_description/meshes/` | TODO | STL/DAE from upstream CAD |
 | Teleop bridge | TODO | Adapt from rover teleop interface |
 | MoveIt config | Future | Standard `moveit_setup_assistant` workflow once URDF is solid |
 | Gazebo sim plugin | Future | `gz_ros2_control` wiring once description is validated |
-
-The serial driver is the only piece that touches hardware-specific code.
-Everything else compiles and runs against the stub immediately.
