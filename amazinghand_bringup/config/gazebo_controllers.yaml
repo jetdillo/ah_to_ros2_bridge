@@ -1,0 +1,21 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    hand_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+hand_trajectory_controller:
+  ros__parameters:
+    joints:
+      - $(var hand_name)_index_flexion
+      - $(var hand_name)_index_abduction
+      - $(var hand_name)_middle_flexion
+      - $(var hand_name)_middle_abduction
+      - $(var hand_name)_ring_flexion
+      - $(var hand_name)_ring_abduction
+      - $(var hand_name)_thumb_flexion
+      - $(var hand_name)_thumb_abduction
+    command_interfaces: [position]
+    state_interfaces: [position, velocity]

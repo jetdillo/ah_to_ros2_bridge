@@ -58,14 +58,19 @@ coordinates and never touches raw servo IDs.
 
 ## Adding or removing fingers
 
-Edit **two** files in lock-step:
+Keep the model and controller configuration in sync when changing the finger set:
 
-1. `amazinghand_bringup/config/right_hand.yaml` — add/remove a finger entry
-2. `amazinghand_description/urdf/hand.urdf.xacro` — add/remove the matching
-   `<xacro:amazinghand_finger .../>` block and its `<joint>` + `<param>` entries
-
-There is no code to change. A 3-finger hand, a 5-finger hand, and the default
-4-finger hand are all identical in structure since the "hand" is really a collection of Fingers.
+1. In `amazinghand_description/config/<hand_name>.yaml`, update the finger geometry
+   and joint poses under `fingers` for the affected hand.
+2. In `amazinghand_description/urdf/hand.urdf.xacro`, update the matching finger
+   macro call and the flexion, abduction, and passive joint declarations in
+   `ros2_control`. This Xacro is shared by both hands.
+   For real hardware, update the `finger.N.*` parameters and servo IDs. Number
+   those entries consecutively starting at `0`.
+3. In `amazinghand_bringup/config/<hand_name>.yaml`, update `finger_names` for
+   the affected hand. If you use Gazebo with `rqt:=true`, also update the
+   trajectory controller's `joints` list in
+   `amazinghand_bringup/config/gazebo_controllers.yaml`.
 
 ---
 
@@ -119,6 +124,18 @@ ros2 launch amazinghand_bringup hand.launch.py \
 ros2 launch amazinghand_bringup hand.launch.py use_sim:=true
 ```
 
+Add `hand_name:=left_hand` for the left hand or `gui:=false` to run headless.
+
+**Gazebo simulation with trajectory sliders:**
+```bash
+ros2 launch amazinghand_bringup hand.launch.py use_sim:=true rqt:=true
+```
+
+In rqt, select `/controller_manager` and `hand_trajectory_controller`.
+
+See the [model documentation](amazinghand_description/MODEL.md) for CAD
+attribution and the standalone MuJoCo and Gazebo Classic models.
+
 ---
 
 ## Sending commands
@@ -142,4 +159,3 @@ Fingers not mentioned in the message retain their current commanded position.
 | `amazinghand_description/rviz/hand.rviz` | TODO | RViz config for visualisation |
 | Teleop bridge | TODO | Adapt from rover teleop interface |
 | MoveIt config | Future | Standard `moveit_setup_assistant` workflow once URDF is solid |
-| Gazebo sim plugin | Future | `gz_ros2_control` wiring once description is validated |

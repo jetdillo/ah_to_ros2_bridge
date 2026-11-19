@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>
     Launch files and runtime configuration for the AmazingHand.
-    hand.launch.py accepts hand_name, serial_port, use_sim, use_rviz arguments.
+    hand.launch.py accepts hand_name, serial_port, use_sim, gui, and rqt arguments.
   </description>
   <maintainer email="you@example.com">Your Name</maintainer>
   <license>Apache-2.0</license>
@@ -20,6 +20,13 @@
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>rviz2</exec_depend>
+
+  <!-- Gazebo simulation and its optional trajectory UI. -->
+  <exec_depend>gz_ros2_control</exec_depend>
+  <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>rqt_joint_trajectory_controller</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
