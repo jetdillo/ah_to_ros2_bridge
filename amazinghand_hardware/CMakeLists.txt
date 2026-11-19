@@ -7,31 +7,28 @@ find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 
-# Path to SCServo_Linux repo root. Adjust if your checkout is elsewhere.
-set(SCSERVO_DIR "$ENV{HOME}/projects/robots/SCServo_Linux"
-    CACHE PATH "Path to SCServo_Linux repository root")
-
 add_library(${PROJECT_NAME} SHARED
   src/amazinghand_hardware_interface.cpp
   src/scs0009_driver.cpp
+  third_party/scservo/SCS.cpp
+  third_party/scservo/SCS0009.cpp
+  third_party/scservo/SCSerial.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
-  ${SCSERVO_DIR}
+  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/${PROJECT_NAME}
 )
 
-ament_target_dependencies(${PROJECT_NAME}
+ament_target_dependencies(${PROJECT_NAME} PUBLIC
   hardware_interface
   pluginlib
   rclcpp
   rclcpp_lifecycle
 )
 
-target_link_libraries(${PROJECT_NAME}
-  ${SCSERVO_DIR}/build/libSCServo.a
-)
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
 
 pluginlib_export_plugin_description_file(
   hardware_interface amazinghand_hardware_plugins.xml
@@ -46,6 +43,11 @@ install(TARGETS ${PROJECT_NAME}
 
 install(DIRECTORY include/
   DESTINATION include
+)
+
+install(FILES third_party/scservo/LICENSE
+  DESTINATION share/${PROJECT_NAME}/licenses
+  RENAME SCServo-LICENSE
 )
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)

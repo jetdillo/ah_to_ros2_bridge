@@ -86,6 +86,8 @@ Examples:
 
 ## Build
 
+The hardware package includes the SCServo SDK sources needed to build the driver.
+
 ```bash
 cd ~/ros2_ws/src
 ln -s /path/to/amazinghand_ros2 .
