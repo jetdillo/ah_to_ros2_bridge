@@ -183,11 +183,12 @@ AmazingHandController::state_interface_configuration() const
   controller_interface::InterfaceConfiguration cfg;
   cfg.type = controller_interface::interface_configuration_type::INDIVIDUAL;
   for (const auto& f : finger_names_) {
-    for (const auto& iface : {hardware_interface::HW_IF_POSITION,
-                               hardware_interface::HW_IF_VELOCITY,
-                               hardware_interface::HW_IF_EFFORT}) {
-      cfg.names.push_back(flexion_joint_name(f)   + "/" + iface);
-      cfg.names.push_back(abduction_joint_name(f) + "/" + iface);
+    for (const auto& joint : {flexion_joint_name(f), abduction_joint_name(f)}) {
+      for (const auto& iface : {hardware_interface::HW_IF_POSITION,
+                                hardware_interface::HW_IF_VELOCITY,
+                                hardware_interface::HW_IF_EFFORT}) {
+        cfg.names.push_back(joint + "/" + iface);
+      }
     }
   }
   return cfg;
